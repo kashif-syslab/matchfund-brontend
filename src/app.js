@@ -35,6 +35,9 @@ app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN || 'http://localhost:3000',
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
   })
 );
 app.use(express.json({ limit: '2mb' }));
