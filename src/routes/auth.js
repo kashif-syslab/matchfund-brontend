@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { signAccess, signRefresh, verifyRefresh } = require('../utils/jwt');
 const { requireAuth } = require('../middleware/auth');
+const { isSmtpConfigured, sendVerificationEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -41,6 +42,11 @@ router.post(
         emailVerifyToken,
         emailVerified: process.env.SKIP_EMAIL_VERIFY === 'true',
       });
+      if (!user.emailVerified && isSmtpConfigured()) {
+        await sendVerificationEmail(user.email, emailVerifyToken).catch((err) => {
+          console.error('[email] verification send failed:', err.message);
+        });
+      }
       const access = signAccess({ sub: user._id.toString(), role: user.role });
       const refresh = signRefresh({ sub: user._id.toString() });
       await pushRefreshToken(user._id, refresh);

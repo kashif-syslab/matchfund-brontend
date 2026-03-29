@@ -5,6 +5,8 @@
   "description": "MatchFund — Founder-Investor Matching Platform API (per PRD)",
   "main": "src/server.js",
   "scripts": {
+    "build": "echo Build complete",
+    "vercel-build": "echo Build complete",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "generate-vapid": "node scripts/generate-vapid.js"
@@ -25,9 +27,11 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.7.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.10.1",
     "openai": "^4.67.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "serverless-http": "^3.2.0",
     "socket.io": "^4.8.3",
     "stripe": "^16.12.0",
     "uuid": "^10.0.0",
