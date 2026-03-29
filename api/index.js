@@ -5,6 +5,7 @@
  * Note: Socket.IO in src/server.js does not run here. Use `npm start` (Railway/Render)
  * for full realtime, or host realtime separately.
  */
+require('dotenv').config();
 const mongoose = require('mongoose');
 const serverless = require('serverless-http');
 const { connectDatabase } = require('../src/config/database');
