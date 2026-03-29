@@ -19,6 +19,7 @@ const notificationRoutes = require('./routes/notifications');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/uploads');
 const { errorHandler } = require('./middleware/errorHandler');
+const { getUploadRoot } = require('./config/uploadPath');
 
 const app = express();
 
@@ -52,7 +53,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(getUploadRoot()));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'matchfund-api' }));
 
