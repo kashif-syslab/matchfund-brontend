@@ -4,7 +4,7 @@ All **plan names, display prices, feature bullets, and enforcement numbers** (ho
 
 `Backend/src/config/subscriptionPlans.js`
 
-The database only stores **which plan a user is on**: `User.subscriptionPlan` (`free` | `starter` | `pro` | `enterprise`). It does **not** store limits. When you change the JS file, restart the API so limits and catalog text update everywhere.
+The database stores **which plan a user is on** plus billing state: `User.subscriptionPlan`, `subscriptionStatus`, `subscriptionExpiresAt`, and optional Stripe ids. It still does **not** store limits. When you change the JS file, restart the API so limits and catalog text update everywhere.
 
 ---
 
@@ -23,6 +23,14 @@ For each key under `PLANS` (`free`, `starter`, `pro`, `enterprise`):
 
 **Usage counters** (recomputes this month) are stored on the user document: `billingPeriodKey` (`YYYY-MM` UTC) and `matchRefreshCount`. You normally do not edit these by hand.
 
+Paid plans also track:
+
+- `subscriptionStatus` (`manual`, `trialing`, `active`, `past_due`, etc.)
+- `subscriptionExpiresAt` (end of current paid period)
+- `stripeCustomerId`
+- `stripeSubscriptionId`
+- `subscriptionCheckedAt` (last Stripe sync on authenticated requests)
+
 ---
 
 ## Stripe environment variables (`Backend/.env`)
@@ -39,8 +47,6 @@ CLIENT_ORIGIN=http://localhost:3000
 - Copy each Price ID into the matching `STRIPE_PRICE_*` variable named in `stripePriceEnv` for that plan.
 - If `STRIPE_SECRET_KEY` or a plan’s price ID is missing, **Pay with Stripe** will not appear for that plan; `POST /billing/subscribe` can still set the plan in **development** (see API response `note`).
 
-**Enterprise:** Until `STRIPE_PRICE_ENTERPRISE` is set, choosing Enterprise returns `501` with a short message. You can still assign `enterprise` in dev by unsetting Stripe (same as other plans).
-
 ---
 
 ## How enforcement works
@@ -52,7 +58,12 @@ CLIENT_ORIGIN=http://localhost:3000
    - Response includes **`planUsage`** (visible count, cap, refreshes used/remaining, etc.).
 
 2. **`GET /billing/plans`** (authenticated)  
-   Returns the same catalog as defined in `subscriptionPlans.js` plus `checkoutAvailable` per plan (derived from env). The frontend Billing page consumes this; there is no separate “plan admin API”.
+   Returns the same catalog as defined in `subscriptionPlans.js` plus `checkoutAvailable` per plan (derived from env), along with the signed-in user’s current `subscriptionStatus` and `subscriptionExpiresAt`.
+
+3. **Expiry / renewal sync**
+   - After successful Stripe Checkout, the API stores the Stripe subscription id and current period end.
+   - On later authenticated requests, the API periodically re-checks Stripe and refreshes `subscriptionStatus` / `subscriptionExpiresAt`.
+   - If the paid period has ended and Stripe no longer reports an active paid state, the user is automatically downgraded to `free`.
 
 ---
 

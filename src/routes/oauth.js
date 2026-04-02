@@ -28,32 +28,38 @@ function oauthCookieOpts() {
   };
 }
 
-/** Optional role for new accounts: set from ?role= on /auth/google or /auth/linkedin */
-function setSignupRoleCookie(res, req) {
-  const r = req.query?.role;
-  if (r === 'founder' || r === 'investor') {
-    res.cookie('oauth_signup_role', r, oauthCookieOpts());
-  } else {
-    res.clearCookie('oauth_signup_role', { path: '/' });
-  }
+function suspendedRedirect(clientOrigin) {
+  return `${clientOrigin}/auth/login?error=suspended`;
 }
 
 /**
  * Link or create user for Google / LinkedIn (email required).
+ * New OAuth-only accounts start as `pending` until they choose founder/investor on the client.
  * @param {'google'|'linkedin'} provider
  */
-async function upsertOAuthUser(provider, oauthId, email, displayName, preferredRole) {
+async function upsertOAuthUser(provider, oauthId, email, displayName) {
   const emailNorm = (email || '').toLowerCase().trim();
   if (!emailNorm) {
     throw new Error('No email from OAuth provider');
   }
-  const role = preferredRole === 'investor' ? 'investor' : 'founder';
 
   let user = await User.findOne({ oauthProvider: provider, oauthId });
-  if (user) return user;
+  if (user) {
+    if (user.isBanned) {
+      const err = new Error('Account suspended');
+      err.code = 'ACCOUNT_SUSPENDED';
+      throw err;
+    }
+    return user;
+  }
 
   user = await User.findOne({ email: emailNorm });
   if (user) {
+    if (user.isBanned) {
+      const err = new Error('Account suspended');
+      err.code = 'ACCOUNT_SUSPENDED';
+      throw err;
+    }
     user.oauthProvider = provider;
     user.oauthId = oauthId;
     user.emailVerified = true;
@@ -64,7 +70,7 @@ async function upsertOAuthUser(provider, oauthId, email, displayName, preferredR
   return User.create({
     email: emailNorm,
     name: displayName || emailNorm.split('@')[0],
-    role,
+    role: 'pending',
     passwordHash: '',
     oauthProvider: provider,
     oauthId,
@@ -88,14 +94,7 @@ function configureGoogle() {
       async (req, _accessToken, _refreshToken, profile, done) => {
         try {
           const email = profile.emails?.[0]?.value?.toLowerCase();
-          const preferredRole = req.cookies?.oauth_signup_role === 'investor' ? 'investor' : 'founder';
-          const user = await upsertOAuthUser(
-            'google',
-            profile.id,
-            email,
-            profile.displayName,
-            preferredRole
-          );
+          const user = await upsertOAuthUser('google', profile.id, email, profile.displayName);
           return done(null, user);
         } catch (e) {
           done(e);
@@ -121,25 +120,31 @@ router.get('/google', (req, res, next) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     return res.status(501).json({ error: 'Google OAuth not configured (set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)' });
   }
-  setSignupRoleCookie(res, req);
   passport.authenticate('google', { scope: ['profile', 'email'], session: false })(req, res, next);
 });
 
 router.get(
   '/google/callback',
   (req, res, next) => {
-    res.clearCookie('oauth_signup_role', { path: '/' });
     passport.authenticate('google', { session: false, failureRedirect: false })(req, res, next);
   },
   async (req, res) => {
     try {
+      const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
       const user = req.user;
       if (!user) {
-        return res.redirect(`${process.env.CLIENT_ORIGIN || 'http://localhost:3000'}/auth/login?error=oauth`);
+        return res.redirect(`${clientOrigin}/auth/login?error=oauth`);
+      }
+      if (user.isBanned) {
+        return res.redirect(suspendedRedirect(clientOrigin));
       }
       await redirectTokens(res, user);
-    } catch {
-      res.redirect(`${process.env.CLIENT_ORIGIN || 'http://localhost:3000'}/auth/login?error=oauth`);
+    } catch (e) {
+      const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
+      if (e?.code === 'ACCOUNT_SUSPENDED') {
+        return res.redirect(suspendedRedirect(clientOrigin));
+      }
+      res.redirect(`${clientOrigin}/auth/login?error=oauth`);
     }
   }
 );
@@ -152,8 +157,6 @@ router.get('/linkedin', (req, res) => {
       error: 'LinkedIn OAuth not configured (set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET)',
     });
   }
-
-  setSignupRoleCookie(res, req);
 
   const base = process.env.OAUTH_CALLBACK_BASE || `http://localhost:${process.env.PORT || 5000}`;
   const redirectUri = `${base}/auth/linkedin/callback`;
@@ -175,10 +178,8 @@ router.get('/linkedin/callback', async (req, res) => {
   const { code, state, error, error_description: errorDesc } = req.query;
 
   const cookieState = req.cookies?.li_oauth_state;
-  const signupRole = req.cookies?.oauth_signup_role;
 
   res.clearCookie('li_oauth_state', { path: '/' });
-  res.clearCookie('oauth_signup_role', { path: '/' });
 
   if (error) {
     return res.redirect(
@@ -233,11 +234,16 @@ router.get('/linkedin/callback', async (req, res) => {
     const email = (profile.email || '').toLowerCase().trim();
     const displayName = profile.name || [profile.given_name, profile.family_name].filter(Boolean).join(' ').trim();
 
-    const preferredRole = signupRole === 'investor' ? 'investor' : 'founder';
-    const user = await upsertOAuthUser('linkedin', oauthId, email, displayName, preferredRole);
+    const user = await upsertOAuthUser('linkedin', oauthId, email, displayName);
+    if (user.isBanned) {
+      return res.redirect(suspendedRedirect(clientOrigin));
+    }
     await redirectTokens(res, user);
   } catch (e) {
     console.error('[oauth] LinkedIn callback:', e);
+    if (e?.code === 'ACCOUNT_SUSPENDED') {
+      return res.redirect(suspendedRedirect(clientOrigin));
+    }
     res.redirect(`${clientOrigin}/auth/login?error=oauth`);
   }
 });

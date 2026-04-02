@@ -4,6 +4,7 @@ const investorProfileSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     brandName: { type: String, default: '' },
+    logoUrl: { type: String, default: '' },
     investmentFocusStages: [{ type: String }],
     industries: [{ type: String }],
     checkSizeMin: { type: Number, default: 0 },

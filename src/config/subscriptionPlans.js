@@ -71,14 +71,14 @@ const PLANS = {
   enterprise: {
     id: 'enterprise',
     label: 'Enterprise',
-    priceLabel: 'Custom',
-    billingNote: 'Contact sales',
-    description: 'Unlimited scale, SSO, and dedicated support — enable Stripe price when ready.',
+    priceLabel: '$99',
+    billingNote: 'per month',
+    description: 'Top-tier access with unlimited matches, recomputes, and premium filters.',
     features: [
       'Unlimited visible matches',
       'Unlimited recomputes',
       'All filters',
-      'Custom integrations (per contract)',
+      'Priority support',
     ],
     limits: {
       maxMatchesVisible: null,

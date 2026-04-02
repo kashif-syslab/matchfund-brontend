@@ -100,6 +100,7 @@ function sanitizeFounder(b) {
 function sanitizeInvestor(b) {
   const allowed = [
     'brandName',
+    'logoUrl',
     'investmentFocusStages',
     'industries',
     'checkSizeMin',

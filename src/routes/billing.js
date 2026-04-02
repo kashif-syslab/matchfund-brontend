@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { requireAuth } = require('../middleware/auth');
 const User = require('../models/User');
 const { getPlansCatalogForClient, getPlanConfig, resolveStripePriceId } = require('../config/subscriptionPlans');
+const { freePlanPatch, localPaidPatch, stripeSubscriptionPatch } = require('../services/subscriptionService');
 
 const router = express.Router();
 
@@ -11,6 +12,8 @@ router.get('/plans', requireAuth, (req, res) => {
   res.json({
     plans: getPlansCatalogForClient(),
     currentPlan: req.userDoc.subscriptionPlan || 'free',
+    subscriptionStatus: req.userDoc.subscriptionStatus || 'free',
+    subscriptionExpiresAt: req.userDoc.subscriptionExpiresAt || null,
   });
 });
 
@@ -27,16 +30,19 @@ router.post(
       getPlanConfig(plan);
 
       if (plan === 'free') {
-        await User.findByIdAndUpdate(req.user.id, { subscriptionPlan: 'free' });
-        return res.json({ ok: true, subscriptionPlan: 'free', checkoutUrl: null });
+        await User.findByIdAndUpdate(req.user.id, freePlanPatch());
+        return res.json({ ok: true, subscriptionPlan: 'free', subscriptionStatus: 'free', checkoutUrl: null });
       }
 
       const stripeKey = process.env.STRIPE_SECRET_KEY;
       if (!stripeKey) {
-        await User.findByIdAndUpdate(req.user.id, { subscriptionPlan: plan });
+        const patch = localPaidPatch(plan);
+        await User.findByIdAndUpdate(req.user.id, patch);
         return res.json({
           ok: true,
           subscriptionPlan: plan,
+          subscriptionStatus: patch.subscriptionStatus,
+          subscriptionExpiresAt: patch.subscriptionExpiresAt,
           checkoutUrl: null,
           note: 'Stripe not configured; plan updated locally for development.',
         });
@@ -44,12 +50,6 @@ router.post(
 
       const priceId = resolveStripePriceId(plan);
       if (!priceId) {
-        if (plan === 'enterprise') {
-          return res.status(501).json({
-            error:
-              'Enterprise checkout is not configured. Set STRIPE_PRICE_ENTERPRISE in .env or contact sales.',
-          });
-        }
         return res.status(501).json({ error: 'Stripe price ID not configured for this plan (check .env).' });
       }
 
@@ -123,9 +123,20 @@ router.post(
         return res.status(400).json({ error: 'Payment has not completed for this session.' });
       }
 
-      await User.findByIdAndUpdate(req.user.id, { subscriptionPlan: plan });
-      const u = await User.findById(req.user.id).select('subscriptionPlan');
-      res.json({ ok: true, subscriptionPlan: u.subscriptionPlan });
+      if (!session.subscription) {
+        return res.status(400).json({ error: 'Checkout session is missing a Stripe subscription.' });
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(String(session.subscription));
+      const patch = stripeSubscriptionPatch(plan, subscription);
+      await User.findByIdAndUpdate(req.user.id, patch);
+      const u = await User.findById(req.user.id).select('subscriptionPlan subscriptionStatus subscriptionExpiresAt');
+      res.json({
+        ok: true,
+        subscriptionPlan: u.subscriptionPlan,
+        subscriptionStatus: u.subscriptionStatus,
+        subscriptionExpiresAt: u.subscriptionExpiresAt,
+      });
     } catch (e) {
       next(e);
     }
